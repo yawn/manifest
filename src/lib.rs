@@ -45,7 +45,7 @@ pub use const_str::equal;
 /// pub(crate) const TEST_CRATE_00001_USER_LOGIN: &str = "user login (TEST_CRATE_00001)";
 /// ```
 ///
-/// When using the optional _objects_ feature, a `Message` struct is also generated within the `messages` module:
+/// When using the optional _objects_ feature, a `Message` struct is also generated:
 ///
 /// ```ignore
 /// /// A Message denotes a message from a message catalogue (defined as Manifest.toml) of immutable messages for audit or business intelligence logging.
@@ -72,9 +72,7 @@ pub use const_str::equal;
 #[macro_export]
 macro_rules! include_manifest {
     () => {
-        pub(crate) mod messages {
-            include!(concat!(env!("OUT_DIR"), "/manifest.rs"));
-        }
+        include!(concat!(env!("OUT_DIR"), "/manifest.rs"));
     };
 }
 

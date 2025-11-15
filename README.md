@@ -55,12 +55,12 @@ Add `manifest` as dependency:
 manifest = { version = "0.1" }
 ```
 
-Initialize the constant inclusion once and use it via the `messages` module:
+Initialize the constant inclusion once and use it:
 
 ```rust,ignore
 manifest::include_manifest!();
 
-use crate::messages::TEST_CRATE_00001_USER_LOGIN;
+use crate::TEST_CRATE_00001_USER_LOGIN;
 
 use tracing::trace;
 
