@@ -93,6 +93,18 @@ pub mod build {
     };
     use syn::{self, Ident};
 
+    macro_rules! message_const_format {
+        () => {
+            "{}_{:05}_{}"
+        };
+    }
+
+    macro_rules! message_display_format {
+        () => {
+            "{} ({}_{:05})"
+        };
+    }
+
     #[derive(Debug)]
     struct Catalog<T>(IndexMap<u16, T>);
 
@@ -170,7 +182,7 @@ pub mod build {
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect::<String>();
 
-        format!("{}_{:05}_{}", prefix, id, message_part)
+        format!(message_const_format!(), prefix, id, message_part)
     }
 
     /// Generate constants and optionally objects associated with the Manifest.toml file.
@@ -191,7 +203,10 @@ pub mod build {
     }
 
     #[cfg(feature = "objects")]
-    fn generate_objects(const_map: &IndexMap<String, (&u16, &Message)>) -> TokenStream {
+    fn generate_objects(
+        prefix: &str,
+        const_map: &IndexMap<String, (&u16, &Message)>,
+    ) -> TokenStream {
         let constants = const_map
             .iter()
             .map(|(constant, (id, message))| {
@@ -208,19 +223,21 @@ pub mod build {
         let lookup_chain = const_map
             .iter()
             .enumerate()
-            .map(|(idx, (constant, (_id, message)))| {
+            .map(|(idx, (constant, (id, message)))| {
                 let ident = Ident::new(constant, Span::call_site());
                 let message = &message.message;
 
+                let display = format!(message_display_format!(), message, prefix, id);
+
                 if idx == 0 {
                     quote! {
-                        if equal!(constant, #message) {
+                        if equal!(constant, #display) {
                             return &#ident
                         }
                     }
                 } else {
                     quote! {
-                        else if equal!(constant, #message) {
+                        else if equal!(constant, #display) {
                             return &#ident
                         }
                     }
@@ -228,7 +245,12 @@ pub mod build {
             })
             .collect::<TokenStream>();
 
+        let message_display_format = message_display_format!();
+
         quote! {
+
+            /// Prefix for all messages (which is a constantized version of the crate name).
+            const PREFIX: &'static str = #prefix;
 
             /// A Message denotes a message from a message catalogue (defined as Manifest.toml) of immutable messages for audit or business intelligence logging.
             #[derive(Debug, Eq, PartialEq)]
@@ -252,11 +274,20 @@ pub mod build {
                 }
             }
 
+            impl std::fmt::Display for Message {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, #message_display_format, self.message, PREFIX, self.id)
+                }
+            }
+
         }
     }
 
     #[cfg(not(feature = "objects"))]
-    fn generate_objects(_const_map: &IndexMap<String, (&u16, &Message)>) -> TokenStream {
+    fn generate_objects(
+        _prefix: &str,
+        _const_map: &IndexMap<String, (&u16, &Message)>,
+    ) -> TokenStream {
         quote! {}
     }
 
@@ -278,7 +309,7 @@ pub mod build {
             })
             .collect();
 
-        let constants = const_map.iter().map(|(constant, (_id, message))| {
+        let constants = const_map.iter().map(|(constant, (id, message))| {
             let ident = Ident::new(constant, Span::call_site());
 
             let attribute = if let Some(reason) = &message.deprecated {
@@ -298,8 +329,7 @@ pub mod build {
                 }
             });
 
-            // TODO: make this into the same format as todo Display impl e.g. "message (PREFIX-%5s(id))"
-            let message = message.message.as_str();
+            let message = format!(message_display_format!(), &message.message, prefix, *id);
 
             quote! {
                 #comment
@@ -309,7 +339,7 @@ pub mod build {
             }
         });
 
-        let objects = generate_objects(&const_map);
+        let objects = generate_objects(prefix, &const_map);
 
         let output_code = quote! {
 

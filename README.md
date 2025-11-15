@@ -70,3 +70,5 @@ fn main() {
 ```
 
 This example (using the manifest from above) would fail to compile since messages `2` and `5` are never used.
+
+If a tracing subscriber would capture the `trace!` from above, the log message would look like this: `user login (TEST_CRATE_00001)`.
