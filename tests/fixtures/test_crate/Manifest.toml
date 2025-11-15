@@ -1,0 +1,15 @@
+[1]
+message = "user login"
+comment = "User successfully logged in"
+
+[2]
+message = "login failed"
+comment = "Authentication failed"
+
+[100]
+message = "deprecated feature"
+comment = "This feature is no longer supported"
+deprecated = "Use feature XYZ instead"
+
+[5]
+message = "password reset"

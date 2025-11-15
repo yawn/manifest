@@ -1,0 +1,28 @@
+[package]
+name = "test_crate"
+version = "0.1.0"
+edition = "2024"
+
+default-run = "all"
+
+[[bin]]
+name = "all"
+path = "src/all.rs"
+
+[[bin]]
+name = "deprecated"
+path = "src/deprecated.rs"
+
+[[bin]]
+name = "some"
+path = "src/some.rs"
+
+[features]
+objects = ["manifest/objects"]
+
+[build-dependencies]
+manifest = { path = "../../..", features = ["build"] }
+
+[dependencies]
+manifest = { path = "../../.." }
+tracing = "0.1"

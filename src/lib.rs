@@ -1,0 +1,384 @@
+#[cfg(feature = "objects")]
+pub use const_str::equal;
+
+#[macro_export]
+macro_rules! include_manifest {
+    () => {
+        pub(crate) mod messages {
+            include!(concat!(env!("OUT_DIR"), "/manifest.rs"));
+        }
+    };
+}
+
+#[cfg(feature = "build")]
+pub mod build {
+    use std::fmt;
+    use std::fs;
+    use std::marker::PhantomData;
+    use std::path::PathBuf;
+
+    use indexmap::IndexMap;
+    use proc_macro2::Span;
+    use proc_macro2::TokenStream;
+    use quote::quote;
+    use serde::{
+        Deserialize,
+        de::{Deserializer, MapAccess, Visitor},
+    };
+    use syn::{self, Ident};
+
+    #[derive(Debug)]
+    struct Catalog<T>(IndexMap<u16, T>);
+
+    #[derive(Deserialize)]
+    struct Message {
+        #[serde(default)]
+        comment: Option<String>,
+        #[serde(default)]
+        deprecated: Option<String>,
+        message: String,
+    }
+
+    impl<T> AsRef<IndexMap<u16, T>> for Catalog<T> {
+        fn as_ref(&self) -> &IndexMap<u16, T> {
+            &self.0
+        }
+    }
+
+    impl<'de, T: Deserialize<'de>> Deserialize<'de> for Catalog<T> {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct MapVisitor<T>(PhantomData<T>);
+
+            impl<'de, T: Deserialize<'de>> Visitor<'de> for MapVisitor<T> {
+                type Value = Catalog<T>;
+
+                fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_str("a map with unique u16 keys")
+                }
+
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                    let mut res = IndexMap::new();
+
+                    while let Some(key) = map.next_key::<String>()? {
+                        let key: u16 = key.parse().map_err(|_| {
+                            serde::de::Error::custom(format!("invalid key: expected u16"))
+                        })?;
+
+                        if res.insert(key, map.next_value()?).is_some() {
+                            return Err(serde::de::Error::custom(format!(
+                                "duplicate key: {}",
+                                key
+                            )));
+                        }
+                    }
+
+                    Ok(Catalog(res))
+                }
+            }
+
+            deserializer.deserialize_map(MapVisitor(PhantomData))
+        }
+    }
+
+    /// Generate a constant name from a prefix, id, and message
+    ///
+    /// # Arguments
+    /// * `prefix` - The prefix to use (e.g., "MANIFEST")
+    /// * `id` - The message ID (u16, 0-65535)
+    /// * `message` - The message text
+    ///
+    /// # Returns
+    /// A constant name in the format `{PREFIX}_{ID:05}_{MESSAGE_UPPERCASE_ALPHANUMERIC}`
+    ///
+    /// # Examples
+    /// ```
+    /// # use manifest::build::constantize;
+    /// assert_eq!(constantize("APP", 1, "user login"), "APP_00001_USER_LOGIN");
+    /// assert_eq!(constantize("APP", 42, "login-failed!"), "APP_00042_LOGIN_FAILED_");
+    /// ```
+    #[cfg_attr(feature = "doctest", visibility::make(pub))]
+    fn constantize(prefix: &str, id: u16, message: &str) -> String {
+        let message_part = message
+            .to_uppercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect::<String>();
+
+        format!("{}_{:05}_{}", prefix, id, message_part)
+    }
+
+    pub fn generate() {
+        let prefix = std::env::var("CARGO_PKG_NAME")
+            .expect("CARGO_PKG_NAME not set")
+            .to_uppercase();
+
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+        let input = PathBuf::from(manifest_dir).join("Manifest.toml");
+
+        let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
+        let output = PathBuf::from(out_dir).join("manifest.rs");
+
+        generate_at(&prefix, input, output);
+    }
+
+    #[cfg(feature = "objects")]
+    fn generate_objects(const_map: &IndexMap<String, (&u16, &Message)>) -> TokenStream {
+        let constants = const_map
+            .iter()
+            .map(|(constant, (id, message))| {
+                let ident = Ident::new(constant, Span::call_site());
+                let id_val = *id;
+                let msg = message.message.as_str();
+
+                quote! {
+                    static #ident: Message = Message { id: #id_val, message: #msg, _private: () };
+                }
+            })
+            .collect::<TokenStream>();
+
+        let lookup_chain = const_map
+            .iter()
+            .enumerate()
+            .map(|(idx, (constant, (_id, message)))| {
+                let ident = Ident::new(constant, Span::call_site());
+                let message = &message.message;
+
+                if idx == 0 {
+                    quote! {
+                        if equal!(constant, #message) {
+                            return &#ident
+                        }
+                    }
+                } else {
+                    quote! {
+                        else if equal!(constant, #message) {
+                            return &#ident
+                        }
+                    }
+                }
+            })
+            .collect::<TokenStream>();
+
+        quote! {
+
+            /// A Message denotes a message from a message catalogue (defined as Manifest.toml) of immutable messages for audit or business intelligence logging.
+            #[derive(Debug, Eq, PartialEq)]
+            pub struct Message {
+                pub id: u16,
+                pub message: &'static str,
+                _private: (),
+            }
+
+            impl Message {
+                #[inline]
+                pub(crate) const fn lookup(constant: &'static str) -> &'static Self {
+
+                    use manifest::equal;
+
+                    #constants
+
+                    #lookup_chain
+
+                    panic!("unknown constant");
+                }
+            }
+
+        }
+    }
+
+    #[cfg(not(feature = "objects"))]
+    fn generate_objects(_const_map: &IndexMap<String, (&u16, &Message)>) -> TokenStream {
+        quote! {}
+    }
+
+    fn generate_at(prefix: &str, input: PathBuf, output: PathBuf) {
+        println!("cargo:rerun-if-changed={}", input.display());
+
+        let content = fs::read_to_string(&input)
+            .unwrap_or_else(|err| panic!("failed to read {:?}: {}", input, err));
+        let messages: Catalog<Message> = toml::from_str(&content)
+            .unwrap_or_else(|err| panic!("failed to parse {:?}: {}", input, err));
+
+        let const_map: IndexMap<String, (&u16, &Message)> = messages
+            .as_ref()
+            .iter()
+            .map(|(id, message)| {
+                let key = constantize(prefix, *id, &message.message);
+                let value = (id, message);
+                (key, value)
+            })
+            .collect();
+
+        let constants = const_map.iter().map(|(constant, (_id, message))| {
+            let ident = Ident::new(constant, Span::call_site());
+
+            let attribute = if let Some(reason) = &message.deprecated {
+                quote! {
+                    #[allow(dead_code)]
+                    #[deprecated(note = #reason)]
+                }
+            } else {
+                quote! {
+                    #[deny(dead_code)]
+                }
+            };
+
+            let comment = message.comment.as_ref().map(|comment| {
+                quote! {
+                    #[doc = #comment]
+                }
+            });
+
+            // TODO: make this into the same format as todo Display impl e.g. "message (PREFIX-%5s(id))"
+            let message = message.message.as_str();
+
+            quote! {
+                #comment
+                #attribute
+                pub(crate) const #ident: &str = #message;
+
+            }
+        });
+
+        let objects = generate_objects(&const_map);
+
+        let output_code = quote! {
+
+            #(#constants)*
+
+            #objects
+
+        };
+
+        let ast = syn::parse2(output_code).unwrap();
+        let formatted = prettyplease::unparse(&ast);
+
+        fs::write(&output, formatted)
+            .unwrap_or_else(|err| panic!("failed to write to {:?}: {}", output, err));
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::collections::HashMap;
+
+        use proptest::prelude::*;
+
+        use super::*;
+
+        #[test]
+        fn test_deserialize_keep_order() {
+            let toml = r#"
+        [items]
+        2 = "second"
+        3 = "third"
+        1 = "first"
+        "#;
+
+            let data: HashMap<String, Catalog<String>> = toml::from_str(toml).unwrap();
+            let map = data.get("items").unwrap().as_ref();
+
+            assert_eq!(map.len(), 3);
+            assert_eq!(map.get(&1), Some(&"first".to_string()));
+            assert_eq!(map.get(&2), Some(&"second".to_string()));
+            assert_eq!(map.get(&3), Some(&"third".to_string()));
+
+            let keys: Vec<_> = map.iter().map(|(k, _)| *k).collect();
+            assert_eq!(keys, vec![2, 3, 1]);
+        }
+
+        #[test]
+        fn test_deserialize_fail_duplicate_keys() {
+            let toml = r#"
+        [items]
+        1 = "first"
+        2 = "second"
+        1 = "duplicate"
+        "#;
+            let res: Result<HashMap<String, Catalog<String>>, _> = toml::from_str(toml);
+
+            assert!(res.is_err());
+            let err_msg = res.unwrap_err().to_string();
+            assert!(
+                err_msg.contains("duplicate key") || err_msg.contains("duplicate"),
+                "Error was: {}",
+                err_msg
+            );
+        }
+
+        #[test]
+        fn test_make_constant_name_basic() {
+            assert_eq!(constantize("APP", 1, "user login"), "APP_00001_USER_LOGIN");
+        }
+
+        #[test]
+        fn test_make_constant_name_with_special_chars() {
+            assert_eq!(
+                constantize("APP", 42, "login-failed!"),
+                "APP_00042_LOGIN_FAILED_"
+            );
+        }
+
+        #[test]
+        fn test_make_constant_name_with_numbers() {
+            assert_eq!(
+                constantize("DOMAIN", 123, "error 404 not found"),
+                "DOMAIN_00123_ERROR_404_NOT_FOUND"
+            );
+        }
+
+        #[test]
+        fn test_make_constant_name_max_u16() {
+            assert_eq!(constantize("X", 65535, "test"), "X_65535_TEST");
+        }
+
+        #[test]
+        fn test_make_constant_name_empty_message() {
+            assert_eq!(constantize("PREFIX", 1, ""), "PREFIX_00001_");
+        }
+
+        proptest! {
+            #[test]
+            fn prop_never_panics(prefix in "\\PC*", id: u16, message in "\\PC*") {
+                let _ = constantize(&prefix, id, &message);
+            }
+
+            #[test]
+            fn prop_contains_padded_id(prefix in "[a-zA-Z_]+", id: u16, message in "\\PC*") {
+                let res = constantize(&prefix, id, &message);
+                let expected_id = format!("{:05}", id);
+                assert!(res.contains(&expected_id),
+                    "res '{}' should contain ID '{}'", res, expected_id);
+            }
+
+            #[test]
+            fn prop_starts_with_prefix(prefix in "[a-zA-Z_][a-zA-Z0-9_]*", id: u16, message in "\\PC*") {
+                let res = constantize(&prefix, id, &message);
+                assert!(res.starts_with(&prefix),
+                    "res '{}' should start with prefix '{}'", res, prefix);
+            }
+
+            #[test]
+            fn prop_only_valid_identifier_chars(prefix in "[a-zA-Z_]+", id: u16, message in "\\PC*") {
+                let res = constantize(&prefix, id, &message);
+                assert!(res.chars().all(|c| c.is_alphanumeric() || c == '_'),
+                    "res '{}' contains invalid identifier characters", res);
+            }
+
+            #[test]
+            fn prop_pure(prefix in "\\PC*", id: u16, message in "\\PC*") {
+                let res1 = constantize(&prefix, id, &message);
+                let res2 = constantize(&prefix, id, &message);
+                assert_eq!(res1, res2, "function should be pure");
+            }
+
+            #[test]
+            fn prop_message_uppercased(prefix in "[a-zA-Z_]+", id: u16, message in "[a-z ]+") {
+                let res = constantize(&prefix, id, &message);
+                let message_upper = message.to_uppercase();
+                let expected_message = message_upper.replace(' ', "_");
+                assert!(res.ends_with(&expected_message),
+                    "res '{}' should end with uppercased message '{}'", res, expected_message);
+            }
+        }
+    }
+}
