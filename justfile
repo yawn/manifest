@@ -6,13 +6,13 @@ clean-integration:
     cargo clean
 
 doc:
-    cargo doc --features build --no-deps
+    cargo doc --features build,docs-features,objects --no-deps --open
 
 test: && test-no-objects test-with-objects
     cargo clippy -- -D warnings
 
 test-no-objects: clean
-    cargo test --features build,doctest
+    cargo test --features build,docs-test
 
 test-with-objects: clean
-    cargo test --features build,doctest,objects
+    cargo test --features build,docs-test,objects
