@@ -1,6 +1,6 @@
 # Manifest
 
-[![CI](https://github.com/yawn/manifest/actions/workflows/rust.yml/badge.svg)](https://github.com/yawn/manifest/actions/workflows/rust.yml)
+[![CI](https://github.com/yawn/manifest/actions/workflows/rust.yml/badge.svg)](https://github.com/yawn/manifest/actions/workflows/rust.yml) [![Crates](https://img.shields.io/crates/v/manifest.svg)](https://crates.io/crates/manifest) [![Docs](https://docs.rs/manifest/badge.svg)](https://docs.rs/manifest)
 
 This crate provides a mechanism to manage catalogues of messages with critical semantics. When used in a build script, this message catalog is
 used to generate constants that must be used (or are marked as deprecated).
