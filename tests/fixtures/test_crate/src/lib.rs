@@ -31,8 +31,12 @@ pub fn test_objects() {
     assert_eq!(msg.message, "login failed");
     assert_eq!(format!("{}", msg), "login failed (TEST_CRATE_00002)");
 
+    fn do_something<T: manifest::Message>(msg: T) {
+        assert_eq!(msg.id(), 5);
+        assert_eq!(msg.message(), "password reset");
+        assert_eq!(format!("{}", msg), "password reset (TEST_CRATE_00005)");
+    }
+
     let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
-    assert_eq!(msg.id, 5);
-    assert_eq!(msg.message, "password reset");
-    assert_eq!(format!("{}", msg), "password reset (TEST_CRATE_00005)");
+    do_something(msg);
 }

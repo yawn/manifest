@@ -11,6 +11,19 @@
 #[doc(hidden)]
 pub use const_str::equal;
 
+#[cfg(feature = "objects")]
+/// Message is the trait implemented by all Message references returned by the `lookup` function.
+pub trait Message: std::fmt::Display {
+    /// Returns the unique identifier of the message.
+    fn id(&self) -> u16;
+    /// Returns the message text.
+    ///
+    /// Note that this is not the equivalent to the constant value but the raw message text from
+    /// the catalogue. The constant equivalent is returned by the [Display] implementation required
+    /// by the trait.
+    fn message(&self) -> &str;
+}
+
 /// Includes a message catalogue defined in Manifest.toml as constants into the calling crate.
 ///
 /// The messages in this catalogue look like this:
@@ -261,6 +274,12 @@ pub mod build {
             }
 
             impl Message {
+
+                /// Lookup and return a static Message struct reference from its constant equivalent.
+                ///
+                /// # Panics
+                ///
+                /// This function will panic if the constant parameter is not defined in the message catalogue.
                 #[inline]
                 pub(crate) const fn lookup(constant: &'static str) -> &'static Self {
 
@@ -271,6 +290,16 @@ pub mod build {
                     #lookup_chain
 
                     panic!("unknown constant");
+                }
+            }
+
+            impl manifest::Message for &'static Message {
+                fn id(&self) -> u16 {
+                    self.id
+                }
+
+                fn message(&self) -> &str {
+                    self.message
                 }
             }
 
