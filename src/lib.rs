@@ -235,24 +235,15 @@ pub mod build {
 
         let lookup_chain = const_map
             .iter()
-            .enumerate()
-            .map(|(idx, (constant, (id, message)))| {
+            .map(|(constant, (id, message))| {
                 let ident = Ident::new(constant, Span::call_site());
                 let message = &message.message;
 
                 let display = format!(message_display_format!(), message, prefix, id);
 
-                if idx == 0 {
-                    quote! {
-                        if equal!(constant, #display) {
-                            return &#ident
-                        }
-                    }
-                } else {
-                    quote! {
-                        else if equal!(constant, #display) {
-                            return &#ident
-                        }
+                quote! {
+                    if equal!(constant, #display) {
+                        return &#ident
                     }
                 }
             })
