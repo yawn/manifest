@@ -31,6 +31,3 @@ tracing = "0.1"
 
 [features]
 objects = ["manifest/objects"]
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(no_inline_lookup)'] }

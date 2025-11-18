@@ -202,6 +202,8 @@ pub mod build {
     ///
     /// See [include_manifest!] macro for usage details and the generated data structure.
     pub fn generate() {
+        println!("cargo::rustc-check-cfg=cfg(no_inline_lookup)");
+
         let prefix = std::env::var("CARGO_PKG_NAME")
             .expect("CARGO_PKG_NAME not set")
             .to_uppercase();
