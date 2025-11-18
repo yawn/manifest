@@ -14,6 +14,11 @@ name = "deprecated"
 path = "src/deprecated.rs"
 
 [[bin]]
+name = "opt"
+path = "src/opt.rs"
+required-features = ["objects"]
+
+[[bin]]
 name = "some"
 path = "src/some.rs"
 
