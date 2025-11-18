@@ -21,7 +21,7 @@ pub trait Message: std::fmt::Display {
     /// Note that this is not the equivalent to the constant value but the raw message text from
     /// the catalogue. The constant equivalent is returned by the [Display] implementation required
     /// by the trait.
-    fn message(&self) -> &str;
+    fn message(&self) -> &'static str;
 }
 
 /// Includes a message catalogue defined in Manifest.toml as constants into the calling crate.
@@ -289,7 +289,7 @@ pub mod build {
                     self.id
                 }
 
-                fn message(&self) -> &str {
+                fn message(&self) -> &'static str {
                     self.message
                 }
             }
