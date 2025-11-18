@@ -19,7 +19,7 @@ pub trait Message: std::fmt::Display {
     /// Returns the message text.
     ///
     /// Note that this is not the equivalent to the constant value but the raw message text from
-    /// the catalogue. The constant equivalent is returned by the [Display] implementation required
+    /// the catalogue. The constant equivalent is returned by the `Display` implementation required
     /// by the trait.
     fn message(&self) -> &'static str;
 }

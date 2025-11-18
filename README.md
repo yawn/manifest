@@ -6,7 +6,8 @@ This crate provides a mechanism to manage catalogues of messages with critical s
 used to generate constants that must be used (or are marked as deprecated).
 
 Optionally (gated behind the `objects` feature) static references to `Message` structs can be obtained as well. These structs expose additional
-metadata about the message.
+metadata about the message. They implement the `Display` trait to render an equivalent to the constant value and implement a `Message` trait
+to enable passing message over crate boundaries.
 
 Messages catalogues are useful for stakeholder communication (such as business sponsors, auditors or security teams) to communicate the entire
 set of critical events or state changes within an application.
