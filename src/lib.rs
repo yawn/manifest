@@ -226,11 +226,11 @@ pub mod build {
             .iter()
             .map(|(constant, (id, message))| {
                 let ident = Ident::new(constant, Span::call_site());
-                let id_val = *id;
-                let msg = message.message.as_str();
+                let id = *id;
+                let message = &message.message;
 
                 quote! {
-                    static #ident: Message = Message { id: #id_val, message: #msg, _private: () };
+                    static #ident: Message = Message { id: #id, message: #message, _private: () };
                 }
             })
             .collect::<TokenStream>();
