@@ -202,6 +202,8 @@ pub mod build {
     ///
     /// See [include_manifest!] macro for usage details and the generated data structure.
     pub fn generate() {
+        println!("cargo::rustc-check-cfg=cfg(no_inline_lookup)");
+
         let prefix = std::env::var("CARGO_PKG_NAME")
             .expect("CARGO_PKG_NAME not set")
             .to_uppercase();
@@ -224,11 +226,11 @@ pub mod build {
             .iter()
             .map(|(constant, (id, message))| {
                 let ident = Ident::new(constant, Span::call_site());
-                let id_val = *id;
-                let msg = message.message.as_str();
+                let id = *id;
+                let message = &message.message;
 
                 quote! {
-                    static #ident: Message = Message { id: #id_val, message: #msg, _private: () };
+                    static #ident: Message = Message { id: #id, message: #message, _private: () };
                 }
             })
             .collect::<TokenStream>();
@@ -271,7 +273,7 @@ pub mod build {
                 /// # Panics
                 ///
                 /// This function will panic if the constant parameter is not defined in the message catalogue.
-                #[inline]
+                #[cfg_attr(not(no_inline_lookup), inline(always))]
                 pub(crate) const fn lookup(constant: &'static str) -> &'static Self {
 
                     use manifest::equal;

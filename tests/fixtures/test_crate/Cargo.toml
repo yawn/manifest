@@ -14,11 +14,13 @@ name = "deprecated"
 path = "src/deprecated.rs"
 
 [[bin]]
+name = "opt"
+path = "src/opt.rs"
+required-features = ["objects"]
+
+[[bin]]
 name = "some"
 path = "src/some.rs"
-
-[features]
-objects = ["manifest/objects"]
 
 [build-dependencies]
 manifest = { path = "../../..", features = ["build"] }
@@ -26,3 +28,6 @@ manifest = { path = "../../..", features = ["build"] }
 [dependencies]
 manifest = { path = "../../.." }
 tracing = "0.1"
+
+[features]
+objects = ["manifest/objects"]

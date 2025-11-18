@@ -1,5 +1,17 @@
 manifest::include_manifest!();
 
+pub const BENCH_USER_LOGIN: &str = TEST_CRATE_00001_USER_LOGIN;
+pub const BENCH_LOGIN_FAILED: &str = TEST_CRATE_00002_LOGIN_FAILED;
+pub const BENCH_PASSWORD_RESET: &str = TEST_CRATE_00005_PASSWORD_RESET;
+#[allow(deprecated)]
+pub const BENCH_DEPRECATED_FEATURE: &str = TEST_CRATE_00100_DEPRECATED_FEATURE;
+
+#[cfg(feature = "objects")]
+#[inline(always)]
+pub fn lookup_message(constant: &'static str) -> &'static Message {
+    Message::lookup(constant)
+}
+
 pub fn test_constants() {
     let message = TEST_CRATE_00001_USER_LOGIN;
     assert_eq!(message, "user login (TEST_CRATE_00001)");

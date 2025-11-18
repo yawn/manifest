@@ -19,6 +19,7 @@ toml = { version = "0.9", features = ["preserve_order"], optional = true }
 visibility = { version = "0.1", optional = true }
 
 [dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports"] }
 proptest = "1.0"
 test_crate = { path = "tests/fixtures/test_crate" }
 
@@ -41,6 +42,10 @@ objects = [
     "dep:const-str",
     "test_crate/objects",
 ]
+
+[[bench]]
+name = "lookup"
+harness = false
 
 [package.metadata.docs.rs]
 features = ["build", "docs-features", "objects" ]
