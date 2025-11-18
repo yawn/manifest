@@ -271,7 +271,7 @@ pub mod build {
                 /// # Panics
                 ///
                 /// This function will panic if the constant parameter is not defined in the message catalogue.
-                #[inline]
+                #[cfg_attr(not(no_inline_lookup), inline(always))]
                 pub(crate) const fn lookup(constant: &'static str) -> &'static Self {
 
                     use manifest::equal;

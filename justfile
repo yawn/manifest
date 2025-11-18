@@ -1,3 +1,13 @@
+bench: bench-inline bench-no-inline
+
+bench-inline: clean-integration
+    @echo "Running benchmarks WITH inline(always) (default)..."
+    cargo bench --features objects --bench lookup -- --save-baseline inline
+
+bench-no-inline: clean-integration
+    @echo "Running benchmarks WITHOUT inline (comparing against inline baseline)..."
+    RUSTFLAGS="--cfg no_inline_lookup" cargo bench --features objects --bench lookup -- --baseline inline
+
 clean: clean-integration
     cargo clean
 
