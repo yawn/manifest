@@ -63,10 +63,10 @@ pub trait Message: std::fmt::Display {
 /// ```ignore
 /// /// A Message denotes a message from a message catalogue (defined as Manifest.toml) of immutable messages for audit or business intelligence logging.
 /// #[derive(Debug, Eq, PartialEq)]
+/// #[non_exhaustive]
 /// pub struct Message {
 ///     pub id: u16,
 ///     pub message: &'static str,
-///     _private: (),
 /// }
 /// ```
 ///
@@ -230,7 +230,7 @@ pub mod build {
                 let message = &message.message;
 
                 quote! {
-                    static #ident: Message = Message { id: #id, message: #message, _private: () };
+                    static #ident: Message = Message { id: #id, message: #message };
                 }
             })
             .collect::<TokenStream>();
@@ -260,10 +260,10 @@ pub mod build {
 
             /// A Message denotes a message from a message catalogue (defined as Manifest.toml) of immutable messages for audit or business intelligence logging.
             #[derive(Debug, Eq, PartialEq)]
+            #[non_exhaustive]
             pub struct Message {
                 pub id: u16,
                 pub message: &'static str,
-                _private: (),
             }
 
             impl Message {
