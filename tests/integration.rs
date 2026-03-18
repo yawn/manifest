@@ -33,6 +33,24 @@ pub fn test_objects() {
 
 #[cfg(feature = "objects")]
 #[test]
+pub fn test_comment_field() {
+    test_crate::test_comment_field();
+}
+
+#[cfg(feature = "objects")]
+#[test]
+pub fn test_attributes() {
+    test_crate::test_attributes();
+}
+
+#[cfg(feature = "objects")]
+#[test]
+pub fn test_tags() {
+    test_crate::test_tags();
+}
+
+#[cfg(feature = "objects")]
+#[test]
 pub fn test_build_contains_no_duplicated_literals() {
     let output = Command::new("cargo")
         .current_dir(path_to_fixture())

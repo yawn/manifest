@@ -46,9 +46,49 @@ pub fn test_objects() {
     fn do_something<T: manifest::Message>(msg: T) {
         assert_eq!(msg.id(), 5);
         assert_eq!(msg.message(), "password reset");
+        assert_eq!(msg.comment(), None);
         assert_eq!(format!("{}", msg), "password reset (TEST_CRATE_00005)");
     }
 
     let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
     do_something(msg);
+}
+
+#[cfg(feature = "objects")]
+pub fn test_comment_field() {
+    let msg = Message::lookup(TEST_CRATE_00001_USER_LOGIN);
+    assert_eq!(msg.comment, Some("User successfully logged in"));
+
+    let msg = Message::lookup(TEST_CRATE_00002_LOGIN_FAILED);
+    assert_eq!(msg.comment, Some("Authentication failed"));
+
+    let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
+    assert_eq!(msg.comment, None);
+}
+
+#[cfg(feature = "objects")]
+pub fn test_attributes() {
+    let msg = Message::lookup(TEST_CRATE_00001_USER_LOGIN);
+    assert_eq!(msg.sponsor, Some("security-team"));
+
+    let msg = Message::lookup(TEST_CRATE_00002_LOGIN_FAILED);
+    assert_eq!(msg.sponsor, None);
+
+    let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
+    assert_eq!(msg.sponsor, Some("identity-team"));
+}
+
+#[cfg(feature = "objects")]
+pub fn test_tags() {
+    let msg = Message::lookup(TEST_CRATE_00001_USER_LOGIN);
+    // Tags are sorted alphabetically
+    assert_eq!(msg.tags, &[Tag::Audit, Tag::Security]);
+
+    let msg = Message::lookup(TEST_CRATE_00002_LOGIN_FAILED);
+    assert_eq!(msg.tags, &[] as &[Tag]);
+
+    let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
+    assert_eq!(msg.tags, &[Tag::Billing]);
+
+    assert!(msg.tags.contains(&Tag::Billing));
 }

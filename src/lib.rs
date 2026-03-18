@@ -14,8 +14,12 @@ pub use const_str::equal;
 #[cfg(feature = "objects")]
 /// Message is the trait implemented by all Message references returned by the `lookup` function.
 pub trait Message: std::fmt::Display {
+    /// Returns the optional comment for this message.
+    fn comment(&self) -> Option<&'static str>;
+
     /// Returns the unique identifier of the message.
     fn id(&self) -> u16;
+
     /// Returns the message text.
     ///
     /// Note that this is not the equivalent to the constant value but the raw message text from
@@ -128,6 +132,18 @@ pub mod build {
         #[serde(default)]
         deprecated: Option<String>,
         message: String,
+        #[serde(default)]
+        tags: Option<Vec<String>>,
+        #[serde(flatten)]
+        extra: IndexMap<String, toml::Value>,
+    }
+
+    #[derive(Debug, Default, Deserialize)]
+    struct Schema {
+        #[serde(default)]
+        attributes: IndexMap<String, String>,
+        #[serde(default)]
+        tags: Option<Vec<String>>,
     }
 
     impl<T> AsRef<IndexMap<u16, T>> for Catalog<T> {
@@ -198,6 +214,33 @@ pub mod build {
         format!(message_const_format!(), prefix, id, message_part)
     }
 
+    /// Convert a snake_case or lowercase string to PascalCase for use as an enum variant.
+    ///
+    /// # Examples
+    /// ```
+    /// # use manifest::build::pascalize;
+    /// assert_eq!(pascalize("security"), "Security");
+    /// assert_eq!(pascalize("my_tag"), "MyTag");
+    /// ```
+    #[cfg_attr(feature = "docs-test", visibility::make(pub))]
+    #[cfg_attr(not(feature = "objects"), allow(dead_code))]
+    fn pascalize(s: &str) -> String {
+        s.split('_')
+            .filter(|part| !part.is_empty())
+            .map(|part| {
+                let mut chars = part.chars();
+                match chars.next() {
+                    Some(c) => {
+                        let mut result = c.to_uppercase().to_string();
+                        result.extend(chars);
+                        result
+                    }
+                    None => String::new(),
+                }
+            })
+            .collect()
+    }
+
     /// Generate constants and optionally objects associated with the Manifest.toml file.
     ///
     /// See [include_manifest!] macro for usage details and the generated data structure.
@@ -221,16 +264,114 @@ pub mod build {
     fn generate_objects(
         prefix: &str,
         const_map: &IndexMap<String, (&u16, &Message)>,
+        schema: &Schema,
     ) -> TokenStream {
+        // Generate Tag enum if schema.tags is present
+        let tags = if let Some(ref tags) = schema.tags {
+            let mut tags = tags.clone();
+            tags.sort();
+
+            let variants: Vec<_> = tags
+                .iter()
+                .map(|v| Ident::new(&pascalize(v), Span::call_site()))
+                .collect();
+
+            quote! {
+                /// Tag represents a closed set of allowed tags for messages.
+                #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+                pub enum Tag {
+                    #(#variants),*
+                }
+            }
+        } else {
+            quote! {}
+        };
+
+        // Sort attribute names for deterministic field order
+        let mut attrs: Vec<&String> = schema.attributes.keys().collect();
+        attrs.sort();
+
+        let attrs: Vec<_> = attrs
+            .iter()
+            .map(|name| Ident::new(name, Span::call_site()))
+            .collect();
+
+        // Build struct fields and per-message field assignments, all sorted alphabetically
+        enum FieldKind {
+            Id,
+            Message,
+            Comment,
+            Tags,
+            Attribute(Ident),
+        }
+
+        let mut fields: Vec<(String, FieldKind)> = vec![
+            ("comment".into(), FieldKind::Comment),
+            ("id".into(), FieldKind::Id),
+            ("message".into(), FieldKind::Message),
+            ("tags".into(), FieldKind::Tags),
+        ];
+        for attr in &attrs {
+            fields.push((attr.to_string(), FieldKind::Attribute(attr.clone())));
+        }
+        fields.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        let struct_fields: Vec<_> = fields
+            .iter()
+            .map(|(_, kind)| match kind {
+                FieldKind::Id => quote! { pub id: u16 },
+                FieldKind::Message => quote! { pub message: &'static str },
+                FieldKind::Comment => quote! { pub comment: Option<&'static str> },
+                FieldKind::Tags => quote! { pub tags: &'static [Tag] },
+                FieldKind::Attribute(attr) => quote! { pub #attr: Option<&'static str> },
+            })
+            .collect();
+
         let constants = const_map
             .iter()
             .map(|(constant, (id, message))| {
                 let ident = Ident::new(constant, Span::call_site());
                 let id = *id;
-                let message = &message.message;
+                let message_text = &message.message;
+
+                let comment = match &message.comment {
+                    Some(comment) => quote! { Some(#comment) },
+                    None => quote! { None },
+                };
+
+                let tags = if let Some(ref tags) = message.tags {
+                    let mut tags = tags.clone();
+                    tags.sort();
+                    let tags: Vec<_> = tags
+                        .iter()
+                        .map(|t| Ident::new(&pascalize(t), Span::call_site()))
+                        .collect();
+                    quote! { &[#(Tag::#tags),*] }
+                } else {
+                    quote! { &[] }
+                };
+
+                let field_values: Vec<_> = fields
+                    .iter()
+                    .map(|(_, kind)| match kind {
+                        FieldKind::Id => quote! { id: #id },
+                        FieldKind::Message => quote! { message: #message_text },
+                        FieldKind::Comment => quote! { comment: #comment },
+                        FieldKind::Tags => quote! { tags: #tags },
+                        FieldKind::Attribute(attr) => {
+                            let value = match message.extra.get(&attr.to_string()) {
+                                Some(toml::Value::String(s)) => quote! { Some(#s) },
+                                _ => quote! { None },
+                            };
+                            quote! { #attr: #value }
+                        }
+                    })
+                    .collect();
 
                 quote! {
-                    static #ident: Message = Message { id: #id, message: #message };
+                    static #ident: Message = Message {
+                        #(#field_values,)*
+                    };
                 }
             })
             .collect::<TokenStream>();
@@ -258,12 +399,13 @@ pub mod build {
             /// Prefix for all messages (which is a constantized version of the crate name).
             const PREFIX: &'static str = #prefix;
 
+            #tags
+
             /// A Message denotes a message from a message catalogue (defined as Manifest.toml) of immutable messages for audit or business intelligence logging.
             #[derive(Debug, Eq, PartialEq)]
             #[non_exhaustive]
             pub struct Message {
-                pub id: u16,
-                pub message: &'static str,
+                #(#struct_fields,)*
             }
 
             impl Message {
@@ -294,6 +436,10 @@ pub mod build {
                 fn message(&self) -> &'static str {
                     self.message
                 }
+
+                fn comment(&self) -> Option<&'static str> {
+                    self.comment
+                }
             }
 
             impl std::fmt::Display for Message {
@@ -309,17 +455,77 @@ pub mod build {
     fn generate_objects(
         _prefix: &str,
         _const_map: &IndexMap<String, (&u16, &Message)>,
+        _schema: &Schema,
     ) -> TokenStream {
         quote! {}
     }
+
+    const RESERVED_ATTRIBUTES: &[&str] = &["message", "comment", "deprecated", "tags"];
 
     fn generate_at(prefix: &str, input: PathBuf, output: PathBuf) {
         println!("cargo:rerun-if-changed={}", input.display());
 
         let content = fs::read_to_string(&input)
             .unwrap_or_else(|err| panic!("failed to read {:?}: {}", input, err));
-        let messages: Catalog<Message> = toml::from_str(&content)
+
+        // Two-phase parse: extract schema first, then parse remainder as Catalog
+        let mut table: toml::Table = toml::from_str(&content)
             .unwrap_or_else(|err| panic!("failed to parse {:?}: {}", input, err));
+
+        let schema: Schema = match table.remove("schema") {
+            Some(schema_value) => schema_value
+                .try_into()
+                .unwrap_or_else(|err| panic!("failed to parse [schema] in {:?}: {}", input, err)),
+            None => Schema::default(),
+        };
+
+        // Validate schema: no reserved attribute names
+        for attr_name in schema.attributes.keys() {
+            if RESERVED_ATTRIBUTES.contains(&attr_name.as_str()) {
+                panic!(
+                    "attribute name '{}' in [schema.attributes] is reserved",
+                    attr_name
+                );
+            }
+        }
+
+        // Parse remainder as Catalog<Message>
+        let remainder = toml::Value::Table(table);
+        let messages: Catalog<Message> = remainder
+            .try_into()
+            .unwrap_or_else(|err| panic!("failed to parse messages in {:?}: {}", input, err));
+
+        // Validate each message
+        for (id, message) in messages.as_ref().iter() {
+            // Validate extra keys are declared in schema.attributes
+            for key in message.extra.keys() {
+                if !schema.attributes.contains_key(key) {
+                    panic!(
+                        "message {} has unknown attribute '{}' not declared in [schema.attributes]",
+                        id, key
+                    );
+                }
+            }
+
+            // Validate tag values are in schema.tags
+            if let Some(ref tags) = message.tags {
+                match &schema.tags {
+                    Some(allowed_tags) => {
+                        for tag in tags {
+                            if !allowed_tags.contains(tag) {
+                                panic!(
+                                    "message {} has unknown tag '{}' not declared in [schema.tags]",
+                                    id, tag
+                                );
+                            }
+                        }
+                    }
+                    None => {
+                        panic!("message {} has tags but no [schema.tags] is defined", id);
+                    }
+                }
+            }
+        }
 
         let const_map: IndexMap<String, (&u16, &Message)> = messages
             .as_ref()
@@ -361,7 +567,7 @@ pub mod build {
             }
         });
 
-        let objects = generate_objects(prefix, &const_map);
+        let objects = generate_objects(prefix, &const_map, &schema);
 
         let output_code = quote! {
 
@@ -500,6 +706,160 @@ pub mod build {
                 assert!(res.ends_with(&expected_message),
                     "res '{}' should end with uppercased message '{}'", res, expected_message);
             }
+        }
+
+        #[test]
+        fn test_pascalize_simple() {
+            assert_eq!(pascalize("security"), "Security");
+        }
+
+        #[test]
+        fn test_pascalize_snake_case() {
+            assert_eq!(pascalize("my_tag"), "MyTag");
+        }
+
+        #[test]
+        fn test_pascalize_multiple_underscores() {
+            assert_eq!(pascalize("a_b_c"), "ABC");
+        }
+
+        #[test]
+        fn test_pascalize_empty() {
+            assert_eq!(pascalize(""), "");
+        }
+
+        #[test]
+        fn test_pascalize_leading_underscore() {
+            assert_eq!(pascalize("_foo"), "Foo");
+        }
+
+        #[test]
+        fn test_schema_deserialize_empty() {
+            let toml = "";
+            let schema: Schema = toml::from_str(toml).unwrap();
+            assert!(schema.attributes.is_empty());
+            assert!(schema.tags.is_none());
+        }
+
+        #[test]
+        fn test_schema_deserialize_with_attributes() {
+            let toml = r#"
+[attributes]
+sponsor = "string"
+owner = "string"
+"#;
+            let schema: Schema = toml::from_str(toml).unwrap();
+            assert_eq!(schema.attributes.len(), 2);
+            assert_eq!(
+                schema.attributes.get("sponsor"),
+                Some(&"string".to_string())
+            );
+            assert!(schema.tags.is_none());
+        }
+
+        #[test]
+        fn test_schema_deserialize_with_tags() {
+            let toml = r#"
+tags = ["security", "billing", "audit"]
+"#;
+            let schema: Schema = toml::from_str(toml).unwrap();
+            assert!(schema.attributes.is_empty());
+            let tags = schema.tags.unwrap();
+            assert_eq!(tags, vec!["security", "billing", "audit"]);
+        }
+
+        #[test]
+        fn test_schema_deserialize_full() {
+            let toml = r#"
+tags = ["security", "billing"]
+
+[attributes]
+sponsor = "string"
+"#;
+            let schema: Schema = toml::from_str(toml).unwrap();
+            assert_eq!(schema.attributes.len(), 1);
+            let tags = schema.tags.unwrap();
+            assert_eq!(tags, vec!["security", "billing"]);
+        }
+
+        #[test]
+        fn test_validate_unknown_attribute_key() {
+            let dir = std::env::temp_dir().join("manifest_test_unknown_attr");
+            fs::create_dir_all(&dir).unwrap();
+
+            let input = dir.join("Manifest.toml");
+            fs::write(
+                &input,
+                r#"
+[1]
+message = "test"
+unknown_attr = "value"
+"#,
+            )
+            .unwrap();
+
+            let output = dir.join("manifest.rs");
+            let result = std::panic::catch_unwind(|| {
+                generate_at("TEST", input.clone(), output.clone());
+            });
+
+            assert!(result.is_err());
+            let _ = fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn test_validate_unknown_tag_value() {
+            let dir = std::env::temp_dir().join("manifest_test_unknown_tag");
+            fs::create_dir_all(&dir).unwrap();
+
+            let input = dir.join("Manifest.toml");
+            fs::write(
+                &input,
+                r#"
+[schema]
+tags = ["security"]
+
+[1]
+message = "test"
+tags = ["unknown"]
+"#,
+            )
+            .unwrap();
+
+            let output = dir.join("manifest.rs");
+            let result = std::panic::catch_unwind(|| {
+                generate_at("TEST", input.clone(), output.clone());
+            });
+
+            assert!(result.is_err());
+            let _ = fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn test_validate_reserved_attribute_name() {
+            let dir = std::env::temp_dir().join("manifest_test_reserved_attr");
+            fs::create_dir_all(&dir).unwrap();
+
+            let input = dir.join("Manifest.toml");
+            fs::write(
+                &input,
+                r#"
+[schema.attributes]
+message = "string"
+
+[1]
+message = "test"
+"#,
+            )
+            .unwrap();
+
+            let output = dir.join("manifest.rs");
+            let result = std::panic::catch_unwind(|| {
+                generate_at("TEST", input.clone(), output.clone());
+            });
+
+            assert!(result.is_err());
+            let _ = fs::remove_dir_all(&dir);
         }
     }
 }

@@ -1,6 +1,14 @@
+[schema]
+tags = ["security", "billing", "audit"]
+
+[schema.attributes]
+sponsor = "string"
+
 [1]
 message = "user login"
 comment = "User successfully logged in"
+sponsor = "security-team"
+tags = ["security", "audit"]
 
 [2]
 message = "login failed"
@@ -13,3 +21,5 @@ deprecated = "Use feature XYZ instead"
 
 [5]
 message = "password reset"
+sponsor = "identity-team"
+tags = ["billing"]
