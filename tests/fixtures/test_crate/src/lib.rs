@@ -47,7 +47,12 @@ pub fn test_objects() {
         assert_eq!(msg.id(), 5);
         assert_eq!(msg.message(), "password reset");
         assert_eq!(msg.comment(), None);
+        assert_eq!(msg.tags(), Some(&["billing"] as &[&str]));
         assert_eq!(format!("{}", msg), "password reset (TEST_CRATE_00005)");
+
+        let attrs = msg.attributes().unwrap();
+        assert_eq!(attrs.get("sponsor"), Some(&"identity-team"));
+        assert_eq!(attrs.len(), 1);
     }
 
     let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
@@ -68,27 +73,41 @@ pub fn test_comment_field() {
 
 #[cfg(feature = "objects")]
 pub fn test_attributes() {
+    use manifest::Message as _;
+
     let msg = Message::lookup(TEST_CRATE_00001_USER_LOGIN);
     assert_eq!(msg.sponsor, Some("security-team"));
+    let attrs = msg.attributes().unwrap();
+    assert_eq!(attrs.get("sponsor"), Some(&"security-team"));
+    assert_eq!(attrs.len(), 1);
 
     let msg = Message::lookup(TEST_CRATE_00002_LOGIN_FAILED);
     assert_eq!(msg.sponsor, None);
+    let attrs = msg.attributes().unwrap();
+    assert!(attrs.is_empty());
 
     let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
     assert_eq!(msg.sponsor, Some("identity-team"));
+    assert_eq!(msg.attributes().unwrap().get("sponsor"), Some(&"identity-team"));
 }
 
 #[cfg(feature = "objects")]
 pub fn test_tags() {
+    use manifest::Message as _;
+
     let msg = Message::lookup(TEST_CRATE_00001_USER_LOGIN);
-    // Tags are sorted alphabetically
+    // Struct tags are sorted alphabetically (typed)
     assert_eq!(msg.tags, &[Tag::Audit, Tag::Security]);
+    // Trait tags are sorted alphabetically (strings)
+    assert_eq!(msg.tags(), Some(&["audit", "security"] as &[&str]));
 
     let msg = Message::lookup(TEST_CRATE_00002_LOGIN_FAILED);
     assert_eq!(msg.tags, &[] as &[Tag]);
+    assert_eq!(msg.tags(), Some(&[] as &[&str]));
 
     let msg = Message::lookup(TEST_CRATE_00005_PASSWORD_RESET);
     assert_eq!(msg.tags, &[Tag::Billing]);
+    assert_eq!(msg.tags(), Some(&["billing"] as &[&str]));
 
     assert!(msg.tags.contains(&Tag::Billing));
 }

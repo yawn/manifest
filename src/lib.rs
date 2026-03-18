@@ -14,8 +14,18 @@ pub use const_str::equal;
 #[cfg(feature = "objects")]
 /// Message is the trait implemented by all Message references returned by the `lookup` function.
 pub trait Message: std::fmt::Display {
+    /// Returns custom attributes as a map of name-value pairs.
+    ///
+    /// Returns `None` if the schema does not define any attributes, or `Some` with a map
+    /// of the attributes that are set on this message.
+    fn attributes(&self) -> Option<std::collections::HashMap<&'static str, &'static str>> {
+        None
+    }
+
     /// Returns the optional comment for this message.
-    fn comment(&self) -> Option<&'static str>;
+    fn comment(&self) -> Option<&'static str> {
+        None
+    }
 
     /// Returns the unique identifier of the message.
     fn id(&self) -> u16;
@@ -26,6 +36,14 @@ pub trait Message: std::fmt::Display {
     /// the catalogue. The constant equivalent is returned by the `Display` implementation required
     /// by the trait.
     fn message(&self) -> &'static str;
+
+    /// Returns the tags associated with this message as string slices.
+    ///
+    /// Returns `None` if the schema does not define any tags, or `Some` with the tags
+    /// that are set on this message.
+    fn tags(&self) -> Option<&'static [&'static str]> {
+        None
+    }
 }
 
 /// Includes a message catalogue defined in Manifest.toml as constants into the calling crate.
@@ -394,6 +412,58 @@ pub mod build {
 
         let message_display_format = message_display_format!();
 
+        // Generate match arms for trait tags() -> &'static [&'static str]
+        let tag_match_arms: Vec<_> = const_map
+            .iter()
+            .filter_map(|(_, (id, message))| {
+                let tags = message.tags.as_ref()?;
+                if tags.is_empty() {
+                    return None;
+                }
+                let id = *id;
+                let mut tags = tags.clone();
+                tags.sort();
+                Some(quote! { #id => &[#(#tags),*], })
+            })
+            .collect();
+
+        // Generate trait method overrides only when the schema defines them
+        let trait_attributes = if !schema.attributes.is_empty() {
+            let attr_inserts: Vec<_> = attrs
+                .iter()
+                .map(|attr| {
+                    let name = attr.to_string();
+                    quote! {
+                        if let Some(v) = self.#attr {
+                            map.insert(#name, v);
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
+            quote! {
+                fn attributes(&self) -> Option<std::collections::HashMap<&'static str, &'static str>> {
+                    let mut map = std::collections::HashMap::new();
+                    #(#attr_inserts)*
+                    Some(map)
+                }
+            }
+        } else {
+            quote! {}
+        };
+
+        let trait_tags = if schema.tags.is_some() {
+            quote! {
+                fn tags(&self) -> Option<&'static [&'static str]> {
+                    Some(match self.id {
+                        #(#tag_match_arms)*
+                        _ => &[],
+                    })
+                }
+            }
+        } else {
+            quote! {}
+        };
+
         quote! {
 
             /// Prefix for all messages (which is a constantized version of the crate name).
@@ -429,6 +499,13 @@ pub mod build {
             }
 
             impl manifest::Message for &'static Message {
+
+                #trait_attributes
+
+                fn comment(&self) -> Option<&'static str> {
+                    self.comment
+                }
+
                 fn id(&self) -> u16 {
                     self.id
                 }
@@ -437,9 +514,7 @@ pub mod build {
                     self.message
                 }
 
-                fn comment(&self) -> Option<&'static str> {
-                    self.comment
-                }
+                #trait_tags
             }
 
             impl std::fmt::Display for Message {
