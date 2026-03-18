@@ -58,20 +58,12 @@ pub fn test_build_contains_no_duplicated_literals() {
     }
 
     let all_strings = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = all_strings.lines().collect();
 
-    let messages: Vec<&str> = lines
-        .iter()
-        .filter(|line| line.contains("user login"))
-        .copied()
-        .collect();
+    let message_count = all_strings.matches("user login").count();
+    let display_count = all_strings.matches("user login (TEST_CRATE_00001)").count();
 
-    let display_count = messages
-        .iter()
-        .filter(|line| line.contains("user login (TEST_CRATE_00001)"));
-
-    assert_eq!(2, messages.len());
-    assert_eq!(1, display_count.count());
+    assert_eq!(2, message_count);
+    assert_eq!(1, display_count);
 }
 
 #[test]
